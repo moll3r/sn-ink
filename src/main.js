@@ -134,6 +134,22 @@ function isLocked() {
   try { return !!snApi.locked; } catch { return false; }
 }
 
+// Remove the doubled-back points older versions recorded on iPad (Safari re-sent coalesced points).
+function cleanStroke(s) {
+  const out = [];
+  const recent = [];
+  for (const q of s.p) {
+    const key = q[0] + ',' + q[1] + ',' + q[2];
+    if (recent.includes(key)) continue;
+    recent.push(key); if (recent.length > 8) recent.shift();
+    const prev = out[out.length - 1];
+    if (prev && Math.hypot(prev[0] - q[0], prev[1] - q[1]) < 0.05) { prev[2] = q[2] || prev[2]; continue; }
+    out.push([q[0], q[1], q[2] > 0 ? q[2] : (prev ? prev[2] : 0.5)]);
+  }
+  s.p = out.length ? out : s.p;
+  return s;
+}
+
 // ---------- persistence ----------
 function serialize() {
   return JSON.stringify({
@@ -151,7 +167,7 @@ function load(text) {
     try {
       const d = JSON.parse(text);
       if (d.format !== FORMAT) throw new Error('not ink');
-      state.strokes = d.strokes || [];
+      state.strokes = (d.strokes || []).map(cleanStroke);
       state.strokes.forEach(bounds);
       state.blocked = false;
     } catch {
@@ -205,7 +221,10 @@ function addPoint(x, y, pressure) {
   }
   if (d.erasing) { eraseAt(pt); return; }
   if (d.snapped) return;
-  d.p.push([pt[0], pt[1], pressure || 0.5]);
+  const prev = d.p[d.p.length - 1];
+  const pr = pressure > 0 ? pressure : (prev ? prev[2] : 0.5);
+  if (prev && Math.abs(prev[0] - pt[0]) < 0.05 && Math.abs(prev[1] - pt[1]) < 0.05) { prev[2] = pr; return; }
+  d.p.push([pt[0], pt[1], pr]);
   if (Math.hypot(pt[0] - d.hold[0], pt[1] - d.hold[1]) > 4) { d.hold = pt; armHold(); }
 }
 function armHold() {
@@ -229,7 +248,7 @@ function finishStroke() {
   if (d.erasing) {
     if (d.removed.length) { state.redo = []; pushHistory({ type: 'erase', strokes: d.removed }); save(); }
   } else if (d.p.length) {
-    delete d.id; delete d.viaTouch; delete d.hold; delete d.snapped; delete d.touchId; delete d.fromTouch;
+    delete d.id; delete d.viaTouch; delete d.hold; delete d.snapped; delete d.touchId; delete d.fromTouch; delete d.lastTs;
     bounds(d);
     pathCache.delete(d);
     state.strokes.push(d);
@@ -267,7 +286,12 @@ wet.addEventListener('pointermove', (e) => {
   if (!d || d.viaTouch || d.id !== e.pointerId) return;
   e.preventDefault();
   const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
-  for (const ev of evs.length ? evs : [e]) addPoint(ev.clientX, ev.clientY, ev.pressure);
+  // iPad Safari re-delivers coalesced points it already sent; only take ones newer than the last.
+  for (const ev of evs.length ? evs : [e]) {
+    if (d.lastTs !== undefined && ev.timeStamp <= d.lastTs) { state.diag.dupes = (state.diag.dupes || 0) + 1; continue; }
+    d.lastTs = ev.timeStamp;
+    addPoint(ev.clientX, ev.clientY, ev.pressure);
+  }
   if (!d.erasing) scheduleWet();
 });
 wet.addEventListener('pointerup', (e) => {
@@ -399,7 +423,7 @@ function updateDiag() {
     'Pressure range: ' + (d.pMax ? d.pMin.toFixed(2) + ' – ' + d.pMax.toFixed(2) : 'n/a'),
     'Coalesced events: ' + (d.coalesced ? 'supported' : 'not supported') + ' · samples: ' + d.events,
     'Pointer cancels rescued: ' + (d.cancels || 0) + ' · touch-fallback samples: ' + (d.touchPts || 0),
-    'Shapes snapped: ' + (d.shapes || 0),
+    'Shapes snapped: ' + (d.shapes || 0) + ' · repeated points dropped: ' + (d.dupes || 0),
     'Mic API present: ' + (!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
     'Permissions policy allows mic: ' + micPolicy(),
   ].join('\n');
