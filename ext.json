@@ -4,6 +4,6 @@
   "description": "Handwriting with Apple Pencil, plus a microphone test.",
   "content_type": "SN|Component",
   "area": "editor-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "url": "https://moll3r.github.io/sn-ink/"
 }

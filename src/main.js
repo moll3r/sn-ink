@@ -1,5 +1,6 @@
 import snApi from 'sn-extension-api';
 import { getStroke } from 'perfect-freehand';
+import { recognize } from './shapes.js';
 import 'sn-extension-api/dist/sn.min.css';
 import './style.css';
 
@@ -138,7 +139,7 @@ function serialize() {
   return JSON.stringify({
     format: FORMAT, v: 1,
     strokes: state.strokes.map((s) => ({
-      c: s.c, s: s.s, ...(s.sim ? { sim: 1 } : {}),
+      c: s.c, s: s.s, ...(s.sim ? { sim: 1 } : {}), ...(s.t ? { t: s.t } : {}),
       p: s.p.map(([x, y, p]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10, Math.round(p * 100) / 100]),
     })),
   });
@@ -174,68 +175,61 @@ function save() {
 }
 
 // ---------- input ----------
+// Pointer events give the best Pencil data (240 Hz via coalesced events), but inside the
+// Standard Notes iPad app iPadOS can cancel them mid-stroke. When that happens we keep the
+// stroke going from the stylus's touch events instead, so strokes never break into dots.
 let fingerScroll = null;
-const activePointers = new Map();
+let holdTimer = null;
+const hasTouch = 'ontouchstart' in window;
 
-wet.addEventListener('pointerdown', (e) => {
-  state.diag.types.add(e.pointerType);
-  updateDiag();
-  if (e.pointerType === 'touch' && !$('#finger').checked) {
-    activePointers.set(e.pointerId, e.clientY);
-    fingerScroll = { y: e.clientY, start: state.scrollY };
-    return;
-  }
+function startStroke(x, y, pressure, id, viaTouch, sim) {
   if (state.blocked || isLocked()) return;
-  e.preventDefault();
-  try { wet.setPointerCapture(e.pointerId); } catch {}
-  const pt = toPage(e);
+  const pt = toPage({ clientX: x, clientY: y });
   if (state.tool === 'eraser') {
-    state.drawing = { erasing: true, id: e.pointerId, removed: [] };
+    state.drawing = { erasing: true, id, viaTouch, removed: [] };
     eraseAt(pt);
     return;
   }
-  const sim = e.pointerType !== 'pen' || e.pressure === 0 || e.pressure === 0.5 ? 1 : 0;
-  state.drawing = { c: state.color, s: SIZES.pen, sim, id: e.pointerId, p: [[pt[0], pt[1], e.pressure || 0.5]] };
+  state.drawing = { c: state.color, s: SIZES.pen, sim, t: Date.now(), id, viaTouch, p: [[pt[0], pt[1], pressure]] };
+  state.drawing.hold = pt;
+  armHold();
   scheduleWet();
-});
-
-wet.addEventListener('pointermove', (e) => {
-  if (fingerScroll && activePointers.has(e.pointerId)) {
-    state.scrollY = Math.max(0, fingerScroll.start - (e.clientY - fingerScroll.y) / state.scale);
-    redrawDry();
-    return;
-  }
+}
+function addPoint(x, y, pressure) {
   const d = state.drawing;
-  if (!d || d.id !== e.pointerId) return;
-  e.preventDefault();
-  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-  const list = events.length ? events : [e];
-  for (const ev of list) {
-    state.diag.events++;
-    if (ev.pressure > 0) {
-      state.diag.pMin = Math.min(state.diag.pMin, ev.pressure);
-      state.diag.pMax = Math.max(state.diag.pMax, ev.pressure);
-    }
-    const pt = toPage(ev);
-    if (d.erasing) eraseAt(pt);
-    else d.p.push([pt[0], pt[1], ev.pressure || 0.5]);
+  const pt = toPage({ clientX: x, clientY: y });
+  state.diag.events++;
+  if (pressure > 0 && pressure !== 0.5) {
+    state.diag.pMin = Math.min(state.diag.pMin, pressure);
+    state.diag.pMax = Math.max(state.diag.pMax, pressure);
   }
-  if (!d.erasing) scheduleWet();
-});
-
-function endPointer(e) {
-  if (activePointers.has(e.pointerId)) {
-    activePointers.delete(e.pointerId);
-    fingerScroll = null;
-    return;
-  }
+  if (d.erasing) { eraseAt(pt); return; }
+  if (d.snapped) return;
+  d.p.push([pt[0], pt[1], pressure || 0.5]);
+  if (Math.hypot(pt[0] - d.hold[0], pt[1] - d.hold[1]) > 4) { d.hold = pt; armHold(); }
+}
+function armHold() {
+  clearTimeout(holdTimer);
+  if (!$('#shapes').checked) return;
   const d = state.drawing;
-  if (!d || d.id !== e.pointerId) return;
+  holdTimer = setTimeout(() => {
+    if (state.drawing !== d || d.erasing || d.snapped) return;
+    const r = recognize(d.p);
+    if (!r) return;
+    d.p = r.pts; d.sim = 0; d.snapped = true; d.shape = r.kind;
+    state.diag.shapes = (state.diag.shapes || 0) + 1;
+    scheduleWet();
+  }, 550);
+}
+function finishStroke() {
+  clearTimeout(holdTimer);
+  const d = state.drawing;
+  if (!d) return;
   state.drawing = null;
   if (d.erasing) {
     if (d.removed.length) { state.redo = []; pushHistory({ type: 'erase', strokes: d.removed }); save(); }
   } else if (d.p.length) {
-    delete d.id;
+    delete d.id; delete d.viaTouch; delete d.hold; delete d.snapped; delete d.touchId; delete d.fromTouch;
     bounds(d);
     pathCache.delete(d);
     state.strokes.push(d);
@@ -247,13 +241,91 @@ function endPointer(e) {
   drawWet();
   updateDiag();
 }
-wet.addEventListener('pointerup', endPointer);
-wet.addEventListener('pointercancel', (e) => { log('pointercancel (' + e.pointerType + ') — stroke interrupted; if this happens with the Pencil, Scribble may be on.'); endPointer(e); });
 
-// Stop iPadOS from treating Pencil/touch on the canvas as text selection, Scribble or page scroll.
-for (const ev of ['touchstart', 'touchmove']) {
-  wet.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+// --- pointer events (Pencil, mouse; finger only when "Finger draws" is on) ---
+wet.addEventListener('pointerdown', (e) => {
+  state.diag.types.add(e.pointerType);
+  if (e.pointerType === 'touch' && !$('#finger').checked) {
+    if (!hasTouch) fingerScroll = { y: e.clientY, start: state.scrollY, id: e.pointerId };
+    return;
+  }
+  e.preventDefault();
+  try { wet.setPointerCapture(e.pointerId); } catch {}
+  const d = state.drawing;
+  if (d && d.fromTouch && d.p && d.p.length < 4) { d.id = e.pointerId; d.viaTouch = false; d.fromTouch = false; return; } // touch beat us to it
+  if (d) return;
+  const sim = e.pointerType !== 'pen' || e.pressure === 0 || e.pressure === 0.5 ? 1 : 0;
+  startStroke(e.clientX, e.clientY, e.pressure || 0.5, e.pointerId, false, sim);
+});
+wet.addEventListener('pointermove', (e) => {
+  if (fingerScroll && fingerScroll.id === e.pointerId) {
+    state.scrollY = Math.max(0, fingerScroll.start - (e.clientY - fingerScroll.y) / state.scale);
+    redrawDry();
+    return;
+  }
+  const d = state.drawing;
+  if (!d || d.viaTouch || d.id !== e.pointerId) return;
+  e.preventDefault();
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  for (const ev of evs.length ? evs : [e]) addPoint(ev.clientX, ev.clientY, ev.pressure);
+  if (!d.erasing) scheduleWet();
+});
+wet.addEventListener('pointerup', (e) => {
+  if (fingerScroll && fingerScroll.id === e.pointerId) { fingerScroll = null; return; }
+  const d = state.drawing;
+  if (d && !d.viaTouch && d.id === e.pointerId) finishStroke();
+});
+wet.addEventListener('pointercancel', (e) => {
+  if (fingerScroll && fingerScroll.id === e.pointerId) { fingerScroll = null; return; }
+  const d = state.drawing;
+  if (!d || d.viaTouch || d.id !== e.pointerId) return;
+  state.diag.cancels = (state.diag.cancels || 0) + 1;
+  if (hasTouch) d.viaTouch = true;   // keep going on touch events
+  else finishStroke();
+  updateDiag();
+});
+
+// --- touch events: finger scrolling, and stroke fallback when pointer events get cancelled ---
+const isPenTouch = (t) => t.touchType === 'stylus' || $('#finger').checked;
+function findTouch(list, id) { for (const t of list) if (t.identifier === id) return t; return null; }
+wet.addEventListener('touchstart', (e) => {
+  e.preventDefault(); // blocks iPadOS scroll / selection / callouts on the canvas
+  for (const t of e.changedTouches) {
+    const running = state.drawing && state.drawing.touchId === undefined;
+    if (isPenTouch(t) || running) {
+      const d = state.drawing;
+      if (d && d.touchId === undefined) d.touchId = t.identifier; // pointer stroke already running
+      else if (!d) {
+        const f = t.force || 0;
+        startStroke(t.clientX, t.clientY, f || 0.5, 'touch', true, t.touchType === 'stylus' && f > 0 ? 0 : 1);
+        if (state.drawing) { state.drawing.touchId = t.identifier; state.drawing.fromTouch = true; }
+      }
+    } else if (!state.drawing) {
+      fingerScroll = { y: t.clientY, start: state.scrollY, touchId: t.identifier };
+    }
+  }
+}, { passive: false });
+wet.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (fingerScroll && fingerScroll.touchId !== undefined) {
+    const t = findTouch(e.changedTouches, fingerScroll.touchId);
+    if (t) { state.scrollY = Math.max(0, fingerScroll.start - (t.clientY - fingerScroll.y) / state.scale); redrawDry(); }
+  }
+  const d = state.drawing;
+  if (!d || !d.viaTouch) return;
+  const t = findTouch(e.changedTouches, d.touchId);
+  if (!t) return;
+  state.diag.touchPts = (state.diag.touchPts || 0) + 1;
+  addPoint(t.clientX, t.clientY, t.force || 0.5);
+  if (!d.erasing) scheduleWet();
+}, { passive: false });
+function touchEnd(e) {
+  if (fingerScroll && findTouch(e.changedTouches, fingerScroll.touchId)) fingerScroll = null;
+  const d = state.drawing;
+  if (d && d.viaTouch && findTouch(e.changedTouches, d.touchId)) finishStroke();
 }
+wet.addEventListener('touchend', touchEnd);
+wet.addEventListener('touchcancel', touchEnd);
 wrap.addEventListener('wheel', (e) => {
   state.scrollY = Math.max(0, state.scrollY + e.deltaY / state.scale);
   redrawDry();
@@ -326,6 +398,8 @@ function updateDiag() {
     'Input types seen: ' + ([...d.types].join(', ') || 'none yet — draw something'),
     'Pressure range: ' + (d.pMax ? d.pMin.toFixed(2) + ' – ' + d.pMax.toFixed(2) : 'n/a'),
     'Coalesced events: ' + (d.coalesced ? 'supported' : 'not supported') + ' · samples: ' + d.events,
+    'Pointer cancels rescued: ' + (d.cancels || 0) + ' · touch-fallback samples: ' + (d.touchPts || 0),
+    'Shapes snapped: ' + (d.shapes || 0),
     'Mic API present: ' + (!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
     'Permissions policy allows mic: ' + micPolicy(),
   ].join('\n');
