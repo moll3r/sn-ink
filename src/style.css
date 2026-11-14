@@ -1,0 +1,51 @@
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  display: flex; flex-direction: column;
+  background: var(--sn-stylekit-background-color, #fff);
+  color: var(--sn-stylekit-foreground-color, #222);
+  font-family: -apple-system, system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+#bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--sn-stylekit-border-color, #ddd);
+  background: var(--sn-stylekit-contrast-background-color, #f6f6f6);
+}
+#bar button, #diag button {
+  font: inherit; min-height: 34px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--sn-stylekit-border-color, #ccc);
+  background: var(--sn-stylekit-background-color, #fff);
+  color: inherit;
+}
+#bar button.on { outline: 2px solid var(--sn-stylekit-info-color, #086dd6); }
+#colors { display: flex; gap: 6px; }
+.swatch { width: 28px; min-height: 28px !important; height: 28px; padding: 0 !important; border-radius: 50% !important; }
+.swatch.on { outline: 2px solid var(--sn-stylekit-info-color, #086dd6); outline-offset: 2px; }
+.sep { width: 1px; height: 24px; background: var(--sn-stylekit-border-color, #ccc); }
+.spacer { flex: 1; }
+label.small { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+#wrap { position: relative; flex: 1; overflow: hidden; background: #fffdf8; }
+#wrap canvas { position: absolute; inset: 0; }
+#wet { touch-action: none; }
+#blocked {
+  position: absolute; inset: 20px; z-index: 5; padding: 16px; border-radius: 10px;
+  background: var(--sn-stylekit-warning-color, #f5c26b); color: #222;
+  height: fit-content;
+}
+#diag {
+  position: absolute; right: 8px; top: 8px; z-index: 6; width: min(420px, calc(100% - 16px));
+  max-height: calc(100% - 16px); overflow: auto;
+  padding: 12px; border-radius: 12px;
+  background: var(--sn-stylekit-background-color, #fff);
+  border: 1px solid var(--sn-stylekit-border-color, #ccc);
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  -webkit-user-select: text; user-select: text;
+}
+#diag h3 { margin: 0 0 8px; font-size: 15px; }
+#diaginfo { white-space: pre-wrap; font: 12px ui-monospace, Menlo, monospace; margin: 0 0 10px; }
+#micresult { margin: 8px 0; }
+#playback { width: 100%; }
+#log { font: 11px ui-monospace, Menlo, monospace; opacity: .75; margin-top: 8px; }
