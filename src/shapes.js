@@ -96,8 +96,15 @@ export function recognize(raw) {
     return { kind: 'line', pts: densify([first, last], false) };
   }
 
-  // closed shapes
-  if (chord > 0.22 * L) return null;
+  // open polyline (zigzag, Z, angle bracket): a few straight segments
+  if (chord > 0.22 * L) {
+    const xs0 = pts.map((p) => p[0]), ys0 = pts.map((p) => p[1]);
+    const diag0 = Math.hypot(Math.max(...xs0) - Math.min(...xs0), Math.max(...ys0) - Math.min(...ys0));
+    const v = rdp(pts, Math.max(4, diag0 * 0.045));
+    const segOk = v.every((q, i) => i === 0 || dist(q, v[i - 1]) > diag0 * 0.12);
+    if (v.length >= 3 && v.length <= 6 && segOk) return { kind: 'polyline', pts: densify(v, false) };
+    return null;
+  }
   let xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   const diag = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
   if (diag < 20) return null;

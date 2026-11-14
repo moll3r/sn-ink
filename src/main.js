@@ -248,7 +248,7 @@ function finishStroke() {
   if (d.erasing) {
     if (d.removed.length) { state.redo = []; pushHistory({ type: 'erase', strokes: d.removed }); save(); }
   } else if (d.p.length) {
-    delete d.id; delete d.viaTouch; delete d.hold; delete d.snapped; delete d.touchId; delete d.fromTouch; delete d.lastTs;
+    delete d.id; delete d.viaTouch; delete d.hold; delete d.snapped; delete d.touchId; delete d.fromTouch; delete d.lastTs; delete d.seen;
     bounds(d);
     pathCache.delete(d);
     state.strokes.push(d);
@@ -287,9 +287,16 @@ wet.addEventListener('pointermove', (e) => {
   e.preventDefault();
   const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
   // iPad Safari re-delivers coalesced points it already sent; only take ones newer than the last.
+  // Two checks, since Safari's timestamps on re-sent points aren't reliable: drop anything older
+  // than the last point we took, and anything identical to one of the last 16 raw points.
+  if (!d.seen) d.seen = [];
   for (const ev of evs.length ? evs : [e]) {
-    if (d.lastTs !== undefined && ev.timeStamp <= d.lastTs) { state.diag.dupes = (state.diag.dupes || 0) + 1; continue; }
+    const key = ev.clientX + ',' + ev.clientY + ',' + ev.pressure;
+    if ((d.lastTs !== undefined && ev.timeStamp < d.lastTs) || d.seen.includes(key)) {
+      state.diag.dupes = (state.diag.dupes || 0) + 1; continue;
+    }
     d.lastTs = ev.timeStamp;
+    d.seen.push(key); if (d.seen.length > 16) d.seen.shift();
     addPoint(ev.clientX, ev.clientY, ev.pressure);
   }
   if (!d.erasing) scheduleWet();
@@ -340,7 +347,7 @@ wet.addEventListener('touchmove', (e) => {
   const t = findTouch(e.changedTouches, d.touchId);
   if (!t) return;
   state.diag.touchPts = (state.diag.touchPts || 0) + 1;
-  addPoint(t.clientX, t.clientY, t.force || 0.5);
+  addPoint(t.clientX, t.clientY, t.force || 0);
   if (!d.erasing) scheduleWet();
 }, { passive: false });
 function touchEnd(e) {
@@ -417,6 +424,7 @@ function log(msg) {
 function updateDiag() {
   const d = state.diag;
   $('#diaginfo').textContent = [
+    'Plugin version: 0.4',
     'Inside Standard Notes: ' + (state.inSN ? 'yes' : 'no (standalone preview)'),
     'Platform: ' + (state.inSN ? (snApi.platform || '?') + ' / ' + (snApi.environment || '?') : navigator.platform),
     'Input types seen: ' + ([...d.types].join(', ') || 'none yet — draw something'),
