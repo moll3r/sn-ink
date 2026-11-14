@@ -3,40 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Ink (test)</title>
-<style>/*CSS*/</style>
+<title>Ink</title>
+<style>html,body{margin:0;height:100%}</style>
 </head>
 <body>
-<div id="bar">
-  <button id="pen" class="on">✏️ Pen</button>
-  <button id="eraser">🩹 Eraser</button>
-  <div id="colors"></div>
-  <div class="sep"></div>
-  <button id="undo" aria-label="Undo">↶</button>
-  <button id="redo" aria-label="Redo">↷</button>
-  <button id="top" aria-label="Scroll to top">⤒</button>
-  <button id="end" aria-label="Scroll to end">⤓</button>
-  <label class="small"><input type="checkbox" id="shapes" checked> Shapes</label>
-  <label class="small"><input type="checkbox" id="finger"> Finger draws</label>
-  <div class="spacer"></div>
-  <button id="diagbtn">🧪 Test panel</button>
-</div>
-<div id="wrap">
-  <canvas id="dry"></canvas>
-  <canvas id="wet"></canvas>
-  <div id="blocked" hidden>
-    <b>This note already has text in it.</b><br>
-    To protect it, the Ink editor won’t draw here. Create a new note and choose Ink as its editor.
-  </div>
-  <div id="diag" hidden>
-    <h3>Test panel</h3>
-    <pre id="diaginfo"></pre>
-    <button id="mic">🎙 Test microphone</button>
-    <div id="micresult">Tap to see whether this plugin can record audio.</div>
-    <audio id="playback" controls hidden></audio>
-    <div id="log"></div>
-  </div>
-</div>
-<script>/*JS*/</script>
+<script>
+// Tiny loader: always fetch the newest app.js so updates aren't stuck behind caches.
+(function () {
+  var s = document.createElement('script');
+  s.src = 'app.js?v=' + Date.now();
+  s.onerror = function () { document.body.textContent = 'Ink plugin failed to load. Check your connection and reopen the note.'; };
+  document.body.appendChild(s);
+})();
+</script>
 </body>
 </html>

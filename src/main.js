@@ -1,8 +1,15 @@
 import snApi from 'sn-extension-api';
 import { getStroke } from 'perfect-freehand';
 import { recognize } from './shapes.js';
-import 'sn-extension-api/dist/sn.min.css';
-import './style.css';
+import snCss from 'sn-extension-api/dist/sn.min.css';
+import appCss from './style.css';
+import markup from './body.html';
+
+const VERSION = '0.5';
+const styleEl = document.createElement('style');
+styleEl.textContent = snCss + '\n' + appCss;
+document.head.appendChild(styleEl);
+document.body.innerHTML = markup;
 
 // ---------- constants ----------
 const FORMAT = 'sn-ink';
@@ -285,19 +292,15 @@ wet.addEventListener('pointermove', (e) => {
   const d = state.drawing;
   if (!d || d.viaTouch || d.id !== e.pointerId) return;
   e.preventDefault();
-  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
-  // iPad Safari re-delivers coalesced points it already sent; only take ones newer than the last.
-  // Two checks, since Safari's timestamps on re-sent points aren't reliable: drop anything older
-  // than the last point we took, and anything identical to one of the last 16 raw points.
+  // Use only the event itself, not getCoalescedEvents(): on iPad the coalesced list re-sends
+  // Pencil points that were already delivered, which made strokes double back into beads.
+  // Exact repeats of recent points are dropped as a second safeguard.
   if (!d.seen) d.seen = [];
-  for (const ev of evs.length ? evs : [e]) {
-    const key = ev.clientX + ',' + ev.clientY + ',' + ev.pressure;
-    if ((d.lastTs !== undefined && ev.timeStamp < d.lastTs) || d.seen.includes(key)) {
-      state.diag.dupes = (state.diag.dupes || 0) + 1; continue;
-    }
-    d.lastTs = ev.timeStamp;
+  const key = e.clientX + ',' + e.clientY + ',' + e.pressure;
+  if (d.seen.includes(key)) { state.diag.dupes = (state.diag.dupes || 0) + 1; }
+  else {
     d.seen.push(key); if (d.seen.length > 16) d.seen.shift();
-    addPoint(ev.clientX, ev.clientY, ev.pressure);
+    addPoint(e.clientX, e.clientY, e.pressure);
   }
   if (!d.erasing) scheduleWet();
 });
@@ -424,7 +427,7 @@ function log(msg) {
 function updateDiag() {
   const d = state.diag;
   $('#diaginfo').textContent = [
-    'Plugin version: 0.4',
+    'Plugin version: ' + VERSION,
     'Inside Standard Notes: ' + (state.inSN ? 'yes' : 'no (standalone preview)'),
     'Platform: ' + (state.inSN ? (snApi.platform || '?') + ' / ' + (snApi.environment || '?') : navigator.platform),
     'Input types seen: ' + ([...d.types].join(', ') || 'none yet — draw something'),

@@ -1,0 +1,31 @@
+
+<div id="bar">
+  <button id="pen" class="on">✏️ Pen</button>
+  <button id="eraser">🩹 Eraser</button>
+  <div id="colors"></div>
+  <div class="sep"></div>
+  <button id="undo" aria-label="Undo">↶</button>
+  <button id="redo" aria-label="Redo">↷</button>
+  <button id="top" aria-label="Scroll to top">⤒</button>
+  <button id="end" aria-label="Scroll to end">⤓</button>
+  <label class="small"><input type="checkbox" id="shapes" checked> Shapes</label>
+  <label class="small"><input type="checkbox" id="finger"> Finger draws</label>
+  <div class="spacer"></div>
+  <button id="diagbtn">🧪 Test panel</button>
+</div>
+<div id="wrap">
+  <canvas id="dry"></canvas>
+  <canvas id="wet"></canvas>
+  <div id="blocked" hidden>
+    <b>This note already has text in it.</b><br>
+    To protect it, the Ink editor won’t draw here. Create a new note and choose Ink as its editor.
+  </div>
+  <div id="diag" hidden>
+    <h3>Test panel</h3>
+    <pre id="diaginfo"></pre>
+    <button id="mic">🎙 Test microphone</button>
+    <div id="micresult">Tap to see whether this plugin can record audio.</div>
+    <audio id="playback" controls hidden></audio>
+    <div id="log"></div>
+  </div>
+</div>
